@@ -197,8 +197,9 @@ select { appearance: none; }
 .note-date { font-size: 11px; color: var(--muted); font-weight: 700; white-space: nowrap; }
 .note-body { margin-top: 12px; display: none; padding-top: 12px; border-top: 1px solid var(--border); }
 .note-card.expanded .note-body { display: block; }
-.note-content, .note-content-edit { background: var(--card); border: 1px solid var(--border); border-radius: var(--rs); padding: 12px; min-height: 80px; max-height: 300px; overflow-y: auto; font-size: 13px; line-height: 1.6; margin-bottom: 12px; color: var(--text); word-wrap: break-word; white-space: pre-wrap; }
-.note-content-display { width: 100%; }
+.note-content { margin-bottom: 12px; }
+.note-content-display { width: 100%; background: var(--card); border: 1px solid var(--border); border-radius: var(--rs); padding: 12px; max-height: 300px; overflow-y: auto; font-size: 13px; line-height: 1.6; color: var(--text); word-wrap: break-word; white-space: pre-wrap; }
+.note-content-edit { background: var(--card); border: 1px solid var(--border); border-radius: var(--rs); padding: 12px; min-height: 200px; max-height: 400px; overflow-y: auto; font-size: 13px; line-height: 1.6; color: var(--text); word-wrap: break-word; white-space: pre-wrap; width: 100%; resize: vertical; }
 .note-actions { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 10px; }
 .note-btn { padding: 8px 14px; background: var(--surface); border: 1px solid var(--border); border-radius: var(--rs); font-size: 12px; font-weight: 800; cursor: pointer; color: var(--text); font-family: 'Nunito', sans-serif; transition: all 0.15s; flex: 1; min-width: 80px; }
 .note-btn:hover { border-color: var(--blue); background: var(--hover); }
@@ -442,7 +443,7 @@ select { appearance: none; }
           <div class="fetch-status" id="fetch-status-text" style="margin-top:8px;"></div>
           <div style="display:flex; gap:8px; margin-top:10px; flex-wrap:wrap;">
             <div style="flex:1;background:var(--surface);border-radius:8px;padding:8px;text-align:center;"><div id="stat-videos-done" style="font-size:18px;font-weight:900;color:var(--blue);">0</div><div style="font-size:10px;color:var(--muted);font-weight:700;">Videos done</div></div>
-            <div style="flex:1;background:var(--surface);border-radius:8px;padding:8px;text-align:center;"><div id="stat-videos-skipped" style="font-size:18px;font-weight:900;color:var(--muted);">0</div><div style="font-size:10px;color:var(--muted);font-weight:700;">Skipped</div></div>
+            <div style="flex:1;background:var(--surface);border-radius:8px;padding:8px;text-align:center;"><div id="stat-videos-skipped" style="font-size:18px;font-weight:900;color:var(--muted);">0</div><div style="font-size:10px;color:var(--muted);font-weight:700;">Videos Skipped</div></div>
             <div style="flex:1;background:var(--surface);border-radius:8px;padding:8px;text-align:center;"><div id="stat-comments-found" style="font-size:18px;font-weight:900;color:var(--green);">0</div><div style="font-size:10px;color:var(--muted);font-weight:700;">Comments</div></div>
           </div>
           <button onclick="cancelFetch()" style="margin-top:10px;width:100%;background:var(--surface);border:1px solid var(--border);color:var(--red);padding:8px;border-radius:8px;font-weight:800;cursor:pointer;">✕ Cancel</button>
@@ -1101,7 +1102,8 @@ function showConfirm(msg, onYes) {
 function closeConfirm() { document.getElementById('confirm-modal').style.display = 'none'; _confirmCallback = null; }
 function getItemMentions(item) {
   let count = 0;
-  allVideos.forEach(v => { 
+  const publishedVideos = allVideos.filter(v => v.datetime && new Date(v.datetime) < new Date());
+  publishedVideos.forEach(v => {
     if ((v.items||[]).some(u => u.toLowerCase() === item.toLowerCase())) count++; 
   });
   return count;
@@ -1684,13 +1686,17 @@ function renderThreads() {
     grouped.get(key).push(v);
   });
   let html = '';
-  Array.from(grouped.entries()).forEach(([key, parts]) => {
+  Array.from(grouped.entries()).sort((a, b) => {
+    const aLatest = Math.max(...a[1].map(v => new Date(v.createdAt || 0).getTime()));
+    const bLatest = Math.max(...b[1].map(v => new Date(v.createdAt || 0).getTime()));
+    return bLatest - aLatest;
+    }).forEach(([key, parts]) => {
     const [base, theme] = key.split('|||');
     const totalItems = [...new Set(parts.flatMap(p => p.items||[]))].length;
     const partsHtml = parts.sort((a,b) => {
       const na = parseInt((a.part||'').match(/\d+/)?.[0]||0);
       const nb = parseInt((b.part||'').match(/\d+/)?.[0]||0);
-      return na - nb;
+      return nb - na;
     }).map(v => `
       <div style="border-top:1px solid var(--border);padding:12px 16px;">
         <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px;">
@@ -1867,7 +1873,8 @@ function precomputeCommenterData() {
     const mentionScore = data.commentCount > 0 ? mentions / data.commentCount : 0;
     
     let responseRate = null;
-    const mentionedVideos = allVideos.filter(v => 
+    const publishedVideos = allVideos.filter(v => v.datetime && new Date(v.datetime) < new Date());
+    const mentionedVideos = publishedVideos.filter(v => 
       (v.items || []).some(u => u.toLowerCase() === username.toLowerCase())
     );
     
@@ -1903,11 +1910,17 @@ function buildOptimizedThemesTable() {
     return '<div class="empty-state">🎨 No themes yet. Add some via Record tab.</div>';
   }
   if (!readyCache) buildReadyCache();
+  
   const themesWithReady = themesList.map(theme => ({
     ...theme,
-    readyCount: readyCache.themes[theme.name]?.count ?? 0
+    readyCount: (readyCache?.themes?.[theme.name]?.count) ?? 0
   }));
-  themesWithReady.sort((a, b) => b.readyCount - a.readyCount);
+  
+  themesWithReady.sort((a, b) => {
+    if (a.dead !== b.dead) return a.dead ? 1 : -1;
+    return b.readyCount - a.readyCount;
+  });
+  
   return buildOptimizedThemesTableHTML(themesWithReady);
 }
 
@@ -2711,7 +2724,7 @@ function renderCommenters() {
   let commenters=Array.from(commenterMap.entries()).map(([username,data])=>{
     const mentions=getItemMentions(username);
     const mentionScore=data.comments>0?mentions/data.comments:0;
-    const mentionedVideos=allVideos.filter(v=>(v.items||[]).some(u=>u.toLowerCase()===username.toLowerCase()));
+    const mentionedVideos = allVideos.filter(v => v.datetime && new Date(v.datetime) < new Date() && (v.items || []).some(u => u.toLowerCase() === username.toLowerCase()));
     const commentedIds=commenterVideos.get(username)||new Set();
     const responded=mentionedVideos.filter(v=>{const vid=titleToVideoId.get(v.title);return vid&&commentedIds.has(vid);}).length;
     const rate=mentionedVideos.length>0?responded/mentionedVideos.length:0;
@@ -2740,7 +2753,8 @@ function renderCommenters() {
 }
 function sortCommenters(col) { if(commenterSortCol===col)commenterSortDir*=-1; else{commenterSortCol=col;commenterSortDir=-1;} commentersPage=0; renderCommenters(); }
 function updateCommenterAnalytics() {
-  const activeDate = new Date('2026-03-01');
+  const activeDate = new Date();
+  activeDate.setDate(activeDate.getDate() - 60);
   const commenterMap = new Map(); // username -> { totalKeys: Set, recentKeys: Set }
   
   commentData.forEach(c => {
@@ -3262,7 +3276,7 @@ const FILTER_DEFAULTS = {
 function getReadyCommentersForTheme(storeKey, entryType, themeName) {
   const filterKey = `${storeKey}:${entryType}:${themeName}`;
   const f = themeFilters[filterKey] || { ...FILTER_DEFAULTS };
-  const filterDate = f.dateEnable ? new Date(f.date) : null;
+  const filterDate = f.dateEnable ? (() => { let d = new Date(); d.setDate(d.getDate() - 60); return d; })() : null;
   const minComments = f.commentsEnable ? f.comments : 0;
   const maxScore = f.scoreEnable ? f.score : Infinity;
   const minRatePct = f.rateEnable ? f.rate : 0;
@@ -3419,6 +3433,7 @@ function loadFilterPreferences() {
 function renderPlanSuggestions() {
   const theme=document.getElementById('plan-theme-input')?.value.trim();
   if (!theme){toast('Select a theme first',true);return;}
+  const publishedVideos = allVideos.filter(v => v.datetime && new Date(v.datetime) < new Date());
   const filterDateEnable=document.getElementById('filter-date-enable').checked;
   const filterDateValue=filterDateEnable?document.getElementById('filter-date-value').value:null;
   const filterCommentsEnable=document.getElementById('filter-comments-enable').checked;
@@ -3436,21 +3451,22 @@ function renderPlanSuggestions() {
   commentData.forEach(c=>{if(c.videoTitle&&c.videoId)titleToVideoId.set(c.videoTitle,c.videoId);});
   const commenterMap=new Map();
   commentData.forEach(c=>{if(filterDateValue&&new Date(c.date)<new Date(filterDateValue))return;if(!commenterMap.has(c.username))commenterMap.set(c.username,{comments:0});commenterMap.get(c.username).comments++;});
-  commenterMap.forEach((data,username)=>{
-    data.mentions=getItemMentions(username);
-    data.mentionScore=data.comments>0?data.mentions/data.comments:0;
-    const mentionedVideos=allVideos.filter(v=>(v.items||[]).some(u=>u.toLowerCase()===username.toLowerCase()));
-    const commentedIds=commenterVideos.get(username)||new Set();
-    const responded=mentionedVideos.filter(v=>{const vid=titleToVideoId.get(v.title);return vid&&commentedIds.has(vid);}).length;
-    data.rate=mentionedVideos.length>0?responded/mentionedVideos.length:null;
-  });
+const filterDateObj = filterDateValue ? new Date(filterDateValue) : null;
+commenterMap.forEach((data, username) => {
+  data.mentions = publishedVideos.filter(v => (!filterDateObj || new Date(v.datetime) >= filterDateObj) && (v.items || []).some(u => u.toLowerCase() === username.toLowerCase())).length;
+  data.mentionScore = data.comments > 0 ? data.mentions / data.comments : 0;
+  const mentionedVideos = publishedVideos.filter(v => (!filterDateObj || new Date(v.datetime) >= filterDateObj) && (v.items || []).some(u => u.toLowerCase() === username.toLowerCase()));
+  const commentedIds = commenterVideos.get(username) || new Set();
+  const responded = mentionedVideos.filter(v => { const vid = titleToVideoId.get(v.title); return vid && commentedIds.has(vid); }).length;
+  data.rate = mentionedVideos.length > 0 ? responded / mentionedVideos.length : null;
+});
   let eligible=[],alreadyUsed=[],filteredOut=[];
   Array.from(commenterMap.entries()).forEach(([username,data])=>{
     const entry={username,...data};
     let reason=null;
     if(data.comments<filterCommentsMin)reason=`(need ${filterCommentsMin} cmts)`;
     if(!reason&&filterScoreEnable&&data.mentionScore>filterScoreMax)reason=`Score ${data.mentionScore.toFixed(2)}`;
-    if(!reason&&filterRateEnable&&data.rate!==null&&data.rate*100<filterRateMin)reason=`Rate ${Math.round(data.rate*100)}%`;
+    if(!reason && filterRateEnable && (data.rate === null || data.rate * 100 < filterRateMin)) reason = `Rate ${data.rate ? Math.round(data.rate*100)+'%' : '—'}`;
     if(reason){filteredOut.push({...entry,reason});return;}
     if(usedInSeries.has(username.toLowerCase()))alreadyUsed.push(entry);
     else eligible.push(entry);
@@ -3492,6 +3508,7 @@ function renderPlanSuggestions() {
   renderPool();
   window._planRenderPool=renderPool;
 }
+
 function togglePlanItem(tag,safeKey,btnEl){
   if(planSelectedItems.includes(tag)){planSelectedItems=planSelectedItems.filter(u=>u!==tag);if(btnEl){btnEl.textContent='+';btnEl.classList.remove('added');}}
   else{planSelectedItems.push(tag);if(btnEl){btnEl.textContent='✓';btnEl.classList.add('added');}}
@@ -4538,7 +4555,7 @@ function applySchedInterval() {
 
 function computeNextRotationSlotIdx() {
   if (schedRotation.length === 0) return 0;
-  const withDate = schedVideos.filter(sv => sv.datetime && sv.rotSlotIdx !== undefined);
+  const withDate = schedVideos.filter(sv => sv.datetime && sv.rotSlotIdx !== undefined && sv.rotSlotIdx < schedRotation.length);
   if (withDate.length === 0) return 0;
   const latest = withDate.reduce((a, b) => new Date(a.datetime) > new Date(b.datetime) ? a : b);
   return (latest.rotSlotIdx + 1) % schedRotation.length;
@@ -4546,29 +4563,56 @@ function computeNextRotationSlotIdx() {
 
 function computeDateForSlot(slotIdx) {
   const interval = schedUploadInterval;
+  const rotationLength = schedRotation.length;
+  
+  // If no rotation start date, use the first scheduled video or today
+  if (!schedRotationStartDate) {
+    const allSched = schedVideos.filter(sv => sv.datetime);
+    if (allSched.length > 0) {
+      const oldest = allSched.reduce((a, b) => new Date(a.datetime) < new Date(b.datetime) ? a : b);
+      const oldestDate = new Date(oldest.datetime);
+      const basePKT = new Date(oldestDate.getTime() + 5 * 3600000);
+      const cycleIndex = (slotIdx - (oldest.rotSlotIdx || 0) + rotationLength) % rotationLength;
+      const cycleOffset = cycleIndex * interval;
+      const date = new Date(basePKT);
+      date.setUTCDate(date.getUTCDate() + cycleOffset);
+      return date.toISOString().slice(0, 10);
+    }
+    return new Date(new Date().getTime() + 5 * 3600000).toISOString().slice(0, 10);
+  }
+  
+  // With start date: slot appears every (rotationLength * interval) days
+  const startDate = new Date(schedRotationStartDate + 'T00:00:00Z');
+  
+  // Find the most recent occurrence of this slot
   const slotVids = schedVideos.filter(sv => sv.rotSlotIdx === slotIdx && sv.datetime);
+  let lastSlotDate = null;
+  let highestCycle = -1;
+  
   if (slotVids.length > 0) {
-    const newest = slotVids.reduce((a, b) => new Date(a.datetime) > new Date(b.datetime) ? a : b);
-    const basePKT = new Date(new Date(newest.datetime).getTime() + 5*3600000);
-    const nextPKT = new Date(basePKT);
-    nextPKT.setUTCDate(nextPKT.getUTCDate() + (schedRotation.length * interval));
-    return nextPKT.toISOString().slice(0,10);
+    // Get the latest video in this slot
+    const latest = slotVids.reduce((a, b) => new Date(a.datetime) > new Date(b.datetime) ? a : b);
+    lastSlotDate = new Date(new Date(latest.datetime).getTime() + 5 * 3600000);
+    
+    // Calculate which cycle this video belongs to
+    const daysSinceStart = Math.floor((lastSlotDate - startDate) / (24 * 3600000));
+    const fullCycleLength = rotationLength * interval;
+    highestCycle = Math.floor(daysSinceStart / fullCycleLength);
   }
-  if (schedRotationStartDate) {
-    const start = new Date(schedRotationStartDate + 'T00:00:00Z');
-    const offsetDays = slotIdx * interval;
-    const slotDate = new Date(start.getTime() + offsetDays * 86400000);
-    return slotDate.toISOString().slice(0,10);
+  
+  // Calculate next date for this slot
+  let nextDate;
+  if (lastSlotDate) {
+    // Add one full cycle from the last occurrence
+    nextDate = new Date(lastSlotDate);
+    nextDate.setUTCDate(nextDate.getUTCDate() + (rotationLength * interval));
+  } else {
+    // First occurrence: slot 0 gets start date, others get start date + (slotIdx * interval)
+    nextDate = new Date(startDate);
+    nextDate.setUTCDate(nextDate.getUTCDate() + (slotIdx * interval));
   }
-  const allWithDate = schedVideos.filter(sv => sv.datetime);
-  if (allWithDate.length > 0) {
-    const latest = allWithDate.reduce((a,b) => new Date(a.datetime) > new Date(b.datetime) ? a : b);
-    const basePKT = new Date(new Date(latest.datetime).getTime() + 5*3600000);
-    const nextPKT = new Date(basePKT);
-    nextPKT.setUTCDate(nextPKT.getUTCDate() + interval);
-    return nextPKT.toISOString().slice(0,10);
-  }
-  return new Date(new Date().getTime() + 5*3600000).toISOString().slice(0,10);
+  
+  return nextDate.toISOString().slice(0, 10);
 }
 
 function renderSchedRotationPicker(selectedIndex) {
@@ -4884,7 +4928,6 @@ document.addEventListener('mousedown',function(e){
 });
 
 let _uvmEditSchedId = null;   // editing an existing schedVideos entry
-let _uvmEditVideoId = null;   // editing an existing videos entry
 let _uvmCurrentType = '';
 let _uvmSeriesFilter = 'sequel';
 let _uvmSchedSeriesFilter = 'sequel';
@@ -4897,7 +4940,7 @@ let _uvmLastThemeNoteKey = null;
 function openVideoModal(opts = {}) {
   console.log('[openVideoModal] opts:', opts);
   _uvmEditSchedId   = opts.schedId   ?? null;
-  _uvmEditVideoId   = opts.videoId   ?? null;
+  
   _uvmCurrentType   = '';
   _uvmSeriesFilter  = 'sequel';
   _uvmSchedSeriesFilter = 'sequel';
@@ -4938,8 +4981,8 @@ function openVideoModal(opts = {}) {
       _uvmCurrentType = sv.type || '';
       _uvmCurrentStatus = sv.status || 'notyet';
       _uvmSelectedRotSlot = sv.rotSlotIdx !== undefined ? sv.rotSlotIdx : -1;
-      document.getElementById('uvm-rot-btn').disabled = true;
-      document.getElementById('uvm-rot-btn').style.opacity = '0.6';
+      document.getElementById('uvm-rot-btn').disabled = false;
+      document.getElementById('uvm-rot-btn').style.opacity = '1';
       uvmRenderRotationPicker(_uvmSelectedRotSlot);
       document.getElementById('uvm-type-input').value = sv.type || '';
       document.getElementById('uvm-type-input').disabled = true;
@@ -4969,34 +5012,7 @@ function openVideoModal(opts = {}) {
     }
   }
 
-  else if (_uvmEditVideoId !== null) {
-    const v = allVideos.find(v => v.id === _uvmEditVideoId);
-    if (v) {
-      title = '✏️ Edit Video';
-      _uvmCurrentType = v.type || '';
-      _uvmSelectedRotSlot = v.rotSlotIdx !== undefined ? v.rotSlotIdx : -1;
-      document.getElementById('uvm-rot-btn').disabled = true;
-      document.getElementById('uvm-rot-btn').style.opacity = '0.6';
-      uvmRenderRotationPicker(_uvmSelectedRotSlot);
-      document.getElementById('uvm-type-input').value = v.type || '';
-      document.getElementById('uvm-type-input').disabled = true;
-      uvmRenderFields();
-      const cfg = getTypeConfig(v.type || '');
-      setTimeout(() => {
-        if (cfg.role === 'both-free') {
-          document.getElementById('uvm-base-input').value = v.base || '';
-          document.getElementById('uvm-theme-rand-input').value = v.theme || '';
-        } else {
-          document.getElementById('uvm-single-input').value = cfg.role === 'base-fixed' ? (v.theme || '') : (v.base || '');
-        }
-        document.getElementById('uvm-part-input').value = v.part || '';
-        document.getElementById('uvm-title-preview').value = v.title || '';
-        _uvmSelectedItems = [...(v.items || [])];
-        uvmRenderSelectedItems();
-        uvmSyncNotesFields();
-      }, 20);
-    }
-  }
+  
 
   else if (opts.theme || opts.items) {
     title = '🎬 Add Video';
@@ -5599,7 +5615,7 @@ function uvmSave() {
   const status = _uvmCurrentStatus;
 
   // Find existing: prefer explicit edit ID, fall back to content match
-  const editId = _uvmEditSchedId ?? _uvmEditVideoId ?? null;
+  const editId = _uvmEditSchedId ?? null;
   const existingIndex = editId !== null
     ? allVideos.findIndex(v => v.id === editId)
     : allVideos.findIndex(v =>
@@ -5695,7 +5711,7 @@ function openAddSchedOnDate(isoDate, slotIdx) {
   openVideoModal({ date: isoDate.slice(0, 10), rotSlotIdx: slotIdx !== undefined && slotIdx >= 0 ? slotIdx : undefined });
 }
 
-function editPartItems(id) { openVideoModal({ videoId: id }); }
+function editPartItems(id) { openVideoModal({ schedId: id }); }
 
 function sendPlanToAdd() { sendPlanToVideoModal(); }
 function sendPlanToVideoModal() {
@@ -5888,21 +5904,24 @@ function startEditNote(id) {
   if (preview && edit) {
     preview.style.display = 'none';
     edit.style.display = 'block';
+    edit.value = notes.find(n => n.id === id)?.content || '';
     edit.focus();
   }
 }
 
 function saveSingleNote(id) {
   const noteId = `note-${id}`;
-  const titleInput = document.querySelector(`#${noteId} .note-title`);
-  const edit = document.getElementById(`${noteId}-edit`);
+  const editTextarea = document.getElementById(`${noteId}-edit`);
   
-  if (!titleInput || !edit) return;
+  if (!editTextarea) return;
   
   const note = notes.find(n => n.id === id);
   if (note) {
-    const newContent = edit.value;
-    updateNote(id, note.title, newContent);
+    note.content = editTextarea.value;
+    note.updatedAt = new Date().toLocaleString();
+    saveNotes();
+    renderNotes();
+    toast('✅ Note saved!');
   }
 }
 
